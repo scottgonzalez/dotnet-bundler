@@ -1,0 +1,38 @@
+{
+  "name": "dotnet-bundler",
+  "version": "0.0.0",
+  "description": "Script and style bundler for .NET",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scottgonzalez/dotnet-bundler.git"
+  },
+  "keywords": [
+    "script",
+    "style",
+    "js",
+    "css",
+    "bundle",
+    "aspnet",
+    "asp.net",
+    "mvc"
+  ],
+  "author": {
+    "name": "Scott González",
+    "email": "scott.gonzalez@gmail.com",
+    "url": "http://scottgonzalez.com"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/scottgonzalez/dotnet-bundler/issues"
+  },
+  "homepage": "https://github.com/scottgonzalez/dotnet-bundler#readme",
+  "dependencies": {
+    "concat-with-sourcemaps": "^1.0.2",
+    "mkdirp": "^0.5.1",
+    "uglify-js": "^2.4.24"
+  }
+}
