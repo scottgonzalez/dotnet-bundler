@@ -4,8 +4,12 @@ var Path = require("path");
 var Concat = require("concat-with-sourcemaps");
 var Mkdirp = require("mkdirp");
 var Uglify = require("uglify-js");
+var Promise = require("es6-promise").Promise;
 
-module.exports = bundle;
+var Bundler = module.exports;
+Bundler.bundle = bundle;
+Bundler.bundleScripts = bundleScripts;
+Bundler.bundleStyles = bundleStyles;
 
 var defaultPaths = {
 	ScriptSource: "/js/src/",
@@ -32,7 +36,7 @@ function parseConfig(config) {
 		}
 	});
 
-	return expandPaths(config);
+	return Promise.resolve(expandPaths(config));
 }
 
 function expandPaths(config) {
@@ -59,55 +63,79 @@ function expandPaths(config) {
 	return config;
 }
 
-function bundleScripts(config) {
-	var checksums = {};
-
-	Object.keys(config.Scripts).forEach(function (bundleName) {
-		var concatPath = config.Paths.ScriptBundles + bundleName + ".concat.js";
-		var fullConcatPath = config.webroot + concatPath;
-		var concatSourceMapPath = concatPath.replace(/js$/, "map");
-		var fullConcatSourceMapPath = config.webroot + concatSourceMapPath;
-
-		var minPath = concatPath.replace(/.concat.js$/, ".js");
-		var fullMinPath = config.webroot + minPath;
-		var minSourceMapPath = minPath.replace(/js$/, "map");
-		var fullMinSourceMapPath = config.webroot + minSourceMapPath;
-
-		var concatBundle = new Concat(true, concatPath, "\n");
-		config.Scripts[bundleName].forEach(function(script) {
-			concatBundle.add(script, Fs.readFileSync(config.webroot + script));
-		});
-
-		Mkdirp(Path.dirname(fullConcatPath));
-		Fs.writeFileSync(fullConcatPath,
-			concatBundle.content + "//# sourceMappingURL=" + concatSourceMapPath);
-		Fs.writeFileSync(fullConcatSourceMapPath, concatBundle.sourceMap);
-
-		var minBundle = Uglify.minify(fullConcatPath, {
-			inSourceMap: fullConcatSourceMapPath,
-			outSourceMap: minSourceMapPath,
-			sourceRoot: config.webroot
-		});
-
-		Fs.writeFileSync(fullMinPath, minBundle.code);
-		Fs.writeFileSync(fullMinSourceMapPath, minBundle.map);
-
-		var checksum = Crypto.createHash("md5");
-		checksum.update(minBundle.code);
-		checksums[bundleName] = checksum.digest("hex");
-	});
-
-	Fs.writeFileSync(config.webroot + config.Paths.ScriptBundles + "bundles.json",
-		JSON.stringify(checksums, null, "\t"));
+function createChecksum(path) {
+	var content = Fs.readFileSync(path);
+	var checksum = Crypto.createHash("md5");
+	checksum.update(content);
+	return checksum.digest("hex");
 }
 
-function bundleStyles(config) {
+function bundleAllScripts(config) {
+	var promises = Object.keys(config.Scripts).map(function(bundleName) {
+		var bundlePath = config.Paths.ScriptBundles + bundleName + ".js";
+		var fullBundlePath = config.webroot + bundlePath;
+
+		Mkdirp(Path.dirname(fullBundlePath));
+
+		return Promise.resolve()
+			.then(function() {
+				return Bundler.bundleScripts({
+					webroot: config.webroot,
+					bundle: bundlePath,
+					sources: config.Scripts[bundleName]
+				});
+			})
+			.then(function() {
+				return {
+					bundleName: bundleName,
+					checksum: createChecksum(fullBundlePath)
+				};
+			});
+	});
+
+	return Promise.all(promises)
+		.then(function(bundles) {
+			var checksums = {};
+			bundles.forEach(function(bundle) {
+				checksums[bundle.bundleName] = bundle.checksum;
+			});
+
+			Fs.writeFileSync(config.webroot + config.Paths.ScriptBundles + "bundles.json",
+				JSON.stringify(checksums, null, "\t"));
+		});
+}
+
+function bundleScripts(paths) {
+	var concatBundle = new Concat(true, paths.bundle, "\n");
+	paths.sources.forEach(function(script) {
+		concatBundle.add(script, Fs.readFileSync(paths.webroot + script));
+	});
+
+	var sourceMapPath = paths.bundle + ".map";
+	var minBundle = Uglify.minify(
+		concatBundle.content + "//# sourceMappingURL=" + sourceMapPath,
+		{
+			fromString: true,
+			inSourceMap: JSON.parse(concatBundle.sourceMap),
+			outSourceMap: sourceMapPath,
+			sourceRoot: paths.webroot
+		}
+	);
+
+	Fs.writeFileSync(paths.webroot + paths.bundle, minBundle.code);
+	Fs.writeFileSync(paths.webroot + sourceMapPath, minBundle.map);
+}
+
+function bundleAllStyles(config) {
+
+}
+
+function bundleStyles(paths) {
 
 }
 
 function bundle(config) {
-	config = parseConfig(config);
-
-	bundleScripts(config);
-	bundleStyles(config);
+	return parseConfig(config)
+		.then(bundleAllScripts)
+		.then(bundleAllStyles);
 }
