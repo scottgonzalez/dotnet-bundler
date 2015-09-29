@@ -34,6 +34,7 @@
     "concat-with-sourcemaps": "^1.0.2",
     "es6-promise": "^3.0.2",
     "mkdirp": "^0.5.1",
+    "node-sass": "^3.3.3",
     "uglify-js": "^2.4.24"
   }
 }

@@ -3,6 +3,7 @@ var Fs = require("fs");
 var Path = require("path");
 var Concat = require("concat-with-sourcemaps");
 var Mkdirp = require("mkdirp");
+var Sass = require("node-sass");
 var Uglify = require("uglify-js");
 var Promise = require("es6-promise").Promise;
 
@@ -10,6 +11,7 @@ var Bundler = module.exports;
 Bundler.bundle = bundle;
 Bundler.bundleScripts = bundleScripts;
 Bundler.bundleStyles = bundleStyles;
+Bundler.cssCompilers = {};
 
 var defaultPaths = {
 	ScriptSource: "/js/src/",
@@ -70,21 +72,19 @@ function createChecksum(path) {
 	return checksum.digest("hex");
 }
 
-function bundleAllScripts(config) {
-	var promises = Object.keys(config.Scripts).map(function(bundleName) {
-		var bundlePath = config.Paths.ScriptBundles + bundleName + ".js";
+function bundleAllResources(config, resourceType, resourceExtension) {
+	var resourceTypePlural = resourceType + "s";
+	var promises = Object.keys(config[resourceTypePlural]).map(function(bundleName) {
+		var bundlePath = config.Paths[resourceType + "Bundles"] + bundleName + resourceExtension;
 		var fullBundlePath = config.webroot + bundlePath;
 
 		Mkdirp(Path.dirname(fullBundlePath));
 
-		return Promise.resolve()
-			.then(function() {
-				return Bundler.bundleScripts({
-					webroot: config.webroot,
-					bundle: bundlePath,
-					sources: config.Scripts[bundleName]
-				});
-			})
+		return Promise.resolve(Bundler["bundle" + resourceTypePlural]({
+			webroot: config.webroot,
+			bundle: bundlePath,
+			sources: config[resourceTypePlural][bundleName]
+		}))
 			.then(function() {
 				return {
 					bundleName: bundleName,
@@ -100,9 +100,18 @@ function bundleAllScripts(config) {
 				checksums[bundle.bundleName] = bundle.checksum;
 			});
 
-			Fs.writeFileSync(config.webroot + config.Paths.ScriptBundles + "bundles.json",
-				JSON.stringify(checksums, null, "\t"));
+			Fs.writeFileSync(
+				config.webroot + config.Paths[resourceType + "Bundles"] + "bundles.json",
+				JSON.stringify(checksums, null, "\t")
+			);
+		})
+		.then(function() {
+			return config;
 		});
+}
+
+function bundleAllScripts(config) {
+	return bundleAllResources(config, "Script", ".js");
 }
 
 function bundleScripts(paths) {
@@ -127,12 +136,68 @@ function bundleScripts(paths) {
 }
 
 function bundleAllStyles(config) {
-
+	return bundleAllResources(config, "Style", ".css");
 }
 
 function bundleStyles(paths) {
+	var promises = paths.sources.map(function(stylesheet) {
+		var extension = Path.extname(paths.webroot + stylesheet);
 
+		var compiler = Bundler.cssCompilers[extension];
+		if (!compiler) {
+			throw new Error("Unknown extension for stylesheet: " + extension);
+		}
+
+		return Promise.resolve(compiler(paths.webroot, stylesheet))
+			.then(function(compiled) {
+				var source = [stylesheet];
+
+				if (typeof compiled === "string" || Buffer.isBuffer(compiled)) {
+					source.push(compiled);
+				} else {
+					source.push(compiled.code);
+					if (compiled.map) {
+						source.push(compiled.map);
+					}
+				}
+
+				return source;
+			});
+	});
+
+	return Promise.all(promises)
+		.then(function(concatSources) {
+			var concatBundle = new Concat(true, paths.bundle, "\n");
+			concatSources.forEach(function(source) {
+				concatBundle.add.apply(concatBundle, source);
+			});
+
+			var sourceMapPath = paths.bundle + ".map";
+			var concatContent = concatBundle.content + "/*# sourceMappingURL=" + sourceMapPath + " */";
+
+			Fs.writeFileSync(paths.webroot + paths.bundle, concatContent);
+			Fs.writeFileSync(paths.webroot + sourceMapPath, concatBundle.sourceMap);
+		});
 }
+
+Bundler.cssCompilers[".css"] = function(webroot, sourcePath) {
+	return Fs.readFileSync(webroot + sourcePath);
+};
+
+Bundler.cssCompilers[".sass"] =
+Bundler.cssCompilers[".scss"] = function(webroot, sourcePath) {
+	var result = Sass.renderSync({
+		file: webroot + sourcePath,
+		sourceMap: true,
+		omitSourceMapUrl: true,
+		outFile: sourcePath.replace(/s[ca]ss$/, "css")
+	});
+
+	return {
+		code: result.css,
+		map: result.map
+	};
+};
 
 function bundle(config) {
 	return parseConfig(config)
