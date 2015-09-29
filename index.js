@@ -1,6 +1,7 @@
 var Crypto = require("crypto");
 var Fs = require("fs");
 var Path = require("path");
+var CleanCss = require("clean-css");
 var Concat = require("concat-with-sourcemaps");
 var Mkdirp = require("mkdirp");
 var Sass = require("node-sass");
@@ -172,11 +173,34 @@ function bundleStyles(paths) {
 				concatBundle.add.apply(concatBundle, source);
 			});
 
-			var sourceMapPath = paths.bundle + ".map";
-			var concatContent = concatBundle.content + "/*# sourceMappingURL=" + sourceMapPath + " */";
+			return {
+				code: concatBundle.content,
+				map: concatBundle.sourceMap
+			};
+		})
+		.then(function(concatBundle) {
+			return new Promise(function(resolve, reject) {
+				new CleanCss({
+					sourceMap: concatBundle.map,
+				})
+					.minify(concatBundle.code, function(error, minified) {
+						if (error) {
+							return reject(error);
+						}
 
-			Fs.writeFileSync(paths.webroot + paths.bundle, concatContent);
-			Fs.writeFileSync(paths.webroot + sourceMapPath, concatBundle.sourceMap);
+						resolve({
+							code: minified.styles,
+							map: minified.sourceMap.toString()
+						});
+					});
+			});
+		})
+		.then(function(minified) {
+			var sourceMapPath = paths.bundle + ".map";
+			var content = minified.code + "/*# sourceMappingURL=" + sourceMapPath + " */";
+
+			Fs.writeFileSync(paths.webroot + paths.bundle, content);
+			Fs.writeFileSync(paths.webroot + sourceMapPath, minified.map);
 		});
 }
 

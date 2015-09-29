@@ -31,6 +31,7 @@
   },
   "homepage": "https://github.com/scottgonzalez/dotnet-bundler#readme",
   "dependencies": {
+    "clean-css": "^3.4.5",
     "concat-with-sourcemaps": "^1.0.2",
     "es6-promise": "^3.0.2",
     "mkdirp": "^0.5.1",
